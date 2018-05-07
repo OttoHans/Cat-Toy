@@ -1,0 +1,477 @@
+#include <Servo.h>                                      //include servo library
+#include <EEPROM.h>
+
+Servo servoBase;                                        //declare servo as variable // x axis
+Servo servoHead;                                        //declare servo as variable // y axis
+
+byte servoBaseCurrent;                                  //variable for laser's current location
+byte servoHeadCurrent;
+byte servoBaseNext;                                     //variable for where laser will go next
+byte servoHeadNext;
+float servoBaseInterval;                                //variable to determine step length for servo movement
+float servoHeadInterval;
+
+int newX;
+int newY;
+int delayTime = 50;                                     //delay time to determine servo speed
+byte syncVal;                                           //sync potentiometer to avoid jerky servo movements
+int analogVal;                                          //variable to potentiometer read value
+bool status;
+byte calVal;
+bool firstTimeOn;
+
+const int potPin = A0;                                  //attach potentiometer to A0
+const int setCornersBtn = 6;                            //variable for buttonPin read value
+volatile int setCorners = 0;
+const int ledPin = 7;                                   //LED for indicator light
+const int buttonPin = 8;                                //button for calibrating servoMin and servoMax
+const int storeCornersBtn = 9;
+
+#define MIN_SERVO 1
+#define MAX_SERVO 179
+#define SERVO_OFFSET 90
+#define SYNCED 1
+#define NOT_SYNCED 0
+#define Ax 1
+#define Ay 2
+#define Bx 3
+#define By 4
+#define Cx 5
+#define Cy 6
+#define Dx 7
+#define Dy 8
+
+typedef struct randomX
+{
+  String leftSlope;
+  int x1;
+  int x2;
+  int x3;
+  int x4;
+  String rightSlope;
+} randomX;
+randomX xValues;
+
+typedef struct coordinate
+{
+  int x;
+  int y;
+} coordinate;
+coordinate cornerA = {-90,  90};
+coordinate cornerB = {-90, -90};
+coordinate cornerC = { 90, -90};
+coordinate cornerD = { 90,  90};
+
+typedef struct cornerBound
+{
+  int min;
+  int max;
+} cornerBound;
+cornerBound boundAx = { 1,  89};
+cornerBound boundAy = {91, 179};
+cornerBound boundBx = { 1,  89};
+cornerBound boundBy = { 1,  89};
+cornerBound boundCx = {91, 179};
+cornerBound boundCy = { 1,  89};
+cornerBound boundDx = {91, 179};
+cornerBound boundDy = {91, 179};
+
+void setup()
+{
+  servoBase.attach(3);                                  //attach myServo to pin 4
+  servoHead.attach(4);
+  pinMode(ledPin, OUTPUT);                              //declare ledPin as output
+  attachInterrupt(digitalPinToInterrupt(setCornersBtn), StartSetCorners, FALLING);
+  firstTimeOn = EEPROM.read(0);
+  if (firstTimeOn == 1)                                 //0 means first time on, 1 means it has been on before
+  {
+    ReadData();
+    UpdateXValues();
+  }
+  FirstTimeOn();
+  Initialize();
+}
+
+void StartSetCorners()
+{
+  setCorners += 1;
+  if (setCorners > 8)
+  {
+    setCorners = 0;
+  }
+}
+
+void loop()
+{
+  if(setCorners > 0)
+  {
+    SetCorners();
+  }
+  delayTime = random(5, 150);
+  newX = random(xValues.x1, xValues.x4);
+  FindNewY();
+  CalculateIntervals(newX, newY, delayTime);
+  MoveServos();  
+}
+
+void SetCorners()
+{
+  if (setCorners == Ax)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerA.x, cornerA.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (setCorners == Ax)
+    {
+      while (status == NOT_SYNCED)
+      {
+        Sync(servoBase);                             //define cornerA.x
+      }
+      if (status == SYNCED)
+      {
+        SetServo(servoBase, boundAx);
+      }
+      cornerA.x = servoBase.read();
+    }
+  }
+  if (setCorners == Ay)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerA.x, cornerA.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (setCorners == Ay)
+    {
+      while (status == NOT_SYNCED)
+      {
+        Sync(servoHead);
+      }
+      if (status == SYNCED)
+      {
+        SetServo(servoHead, boundAy);
+      }
+      cornerA.y = servoHead.read();
+    }
+  }
+  if (setCorners == Bx)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerB.x, cornerB.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoBase);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoBase, boundBx);
+    }
+    cornerB.x = servoBase.read();
+  }
+  if (setCorners == By)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerB.x, cornerB.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoHead);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoHead, boundBy);
+    }
+    cornerB.y = servoHead.read();
+  }
+  if (setCorners == Cx)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerC.x, cornerC.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoBase);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoBase, boundCx);
+    }
+    cornerC.x = servoBase.read();
+  }
+  if (setCorners == Cy)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerC.x, cornerC.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoHead);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoHead, boundCy);
+    }
+    cornerC.y = servoHead.read();
+  }
+  if (setCorners == Dx)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerD.x, cornerD.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoBase);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoBase, boundDx);
+    }
+    cornerD.x = servoBase.read();
+  }
+  if (setCorners == Dy)
+  {
+    status = NOT_SYNCED;
+    LocateServos();                                           //locate servo locations
+    CalculateIntervals(cornerD.x, cornerD.y, 50);             //set servos to move to specified corner
+    MoveServos();                                             //move servos to corner
+    while (status == NOT_SYNCED)
+    {
+      Sync(servoHead);
+    }
+    if (status == SYNCED)
+    {
+      SetServo(servoHead, boundDy);
+    }
+    cornerD.y = servoHead.read();
+  }
+  UpdateXValues();
+}
+
+void Sync(Servo &theServo)
+{
+  analogVal = analogRead(potPin);
+  int servoCurrent = theServo.read();
+  int mappedVal = mapAnalogToCoord(analogVal);
+  int compareVal = servoBaseCurrent - mappedVal;
+  if (abs(compareVal) < 5)
+  {
+    status = SYNCED;
+  }
+}
+
+void SetServo(Servo &theServo, cornerBound B)                              //have to keep each corner in its own quadrant and make sure it stays synced
+{
+  analogVal = analogRead(potPin);
+  int servoNext = mapAnalogToCoord(analogVal);
+  theServo.write(servoNext);
+  if (theServo.read() < B.min)
+  {
+    theServo.write(B.min);
+    status = NOT_SYNCED;
+  }
+  if (theServo.read() > B.max)
+  {
+    theServo.write(B.max);
+    status = NOT_SYNCED;
+  }
+}
+
+int CalculateBoundary(coordinate C1, coordinate C2, int X)
+{
+  int m = (C2.y - C1.y) / (C2.x - C1.x);
+  int boundY = (m * (X - C1.x)) + C1.y;
+  return boundY;
+}
+
+void FindNewY()
+{
+  if (newX >= xValues.x1 && newX <= xValues.x2)
+  {
+    Left();
+  }
+  if (newX > xValues.x2 && newX < xValues.x3)
+  {
+    Middle();
+  }
+  if (newX >= xValues.x3 && newX <= xValues.x4)
+  {
+    Right();
+  }
+}
+void Left()
+{
+  if (xValues.leftSlope == "Vertical")
+  {
+    newY = random(CalculateBoundary(cornerB, cornerC, newX), CalculateBoundary(cornerA, cornerD, newX));
+  }
+  if (xValues.leftSlope == "Increasing")
+  {
+    newY = random(CalculateBoundary(cornerB, cornerC, newX), CalculateBoundary(cornerA, cornerB, newX));
+  }
+  if (xValues.leftSlope == "Decreasing")
+  {
+    newY = random(CalculateBoundary(cornerA, cornerB, newX), CalculateBoundary(cornerA, cornerD, newX));
+  }
+}
+void Middle()
+{
+  newY = random(CalculateBoundary(cornerB, cornerC, newX), CalculateBoundary(cornerA, cornerD, newX));
+}
+void Right()
+{
+  if (xValues.rightSlope == "Vertical")
+  {
+    newY = random(CalculateBoundary(cornerB, cornerC, newX), CalculateBoundary(cornerA, cornerD, newX));
+  }
+  if (xValues.rightSlope == "Increasing")
+  {
+    newY = random(CalculateBoundary(cornerC, cornerD, newX), CalculateBoundary(cornerA, cornerD, newX));
+  }
+  if (xValues.rightSlope == "Decreasing")
+  {
+    newY = random(CalculateBoundary(cornerB, cornerC, newX), CalculateBoundary(cornerC, cornerD, newX));
+  }
+}
+
+void FirstTimeOn()                                        //only runs if its the first time it is ever on
+{
+  if (firstTimeOn == 0)
+  {
+    delayTime = 100;
+    LocateServos();
+    CalculateIntervals(90, 90, delayTime);
+    MoveServos();
+    cornerA = {90, 90};
+    cornerB = {90, 90};
+    cornerC = {90, 90};
+    cornerD = {90, 90};
+    UpdateXValues();
+    EEPROM.write(0, 1);
+  }
+}                                                     //should make it so you can setup laser pointer's 'center'
+
+void MoveServos()
+{
+  for (int i = 0; i < 100; i++)
+  {
+    servoBase.write(servoBaseCurrent + servoBaseInterval);
+    servoBase.write(servoHeadCurrent + servoHeadInterval);
+    servoBaseCurrent = servoBase.read();
+    servoHeadCurrent = servoHead.read();
+  }
+  servoBase.write(servoBaseNext);
+  servoHead.write(servoHeadNext);
+  servoBaseCurrent = servoBaseNext;
+  servoHeadCurrent = servoHeadNext;
+  delay(delayTime);
+}
+
+void CalculateIntervals(int BASE_NEXT, int HEAD_NEXT, int NUMBER_OF_STEPS)      //sets next servo locations and defines intervals
+{
+  servoBaseNext = BASE_NEXT;
+  servoHeadNext = HEAD_NEXT;
+  servoBaseInterval = (BASE_NEXT - servoBaseCurrent)/NUMBER_OF_STEPS;
+  servoHeadInterval = (HEAD_NEXT - servoHeadCurrent)/NUMBER_OF_STEPS;
+}
+
+void LocateServos()                                       //reads servo locations
+{
+  servoBaseCurrent = servoBase.read();
+  servoHeadCurrent = servoHead.read();
+}
+
+void StoreData()                                          //stores data to eeprom
+{
+  int eeAddress = 1;
+  EEPROM.put(eeAddress, cornerA);
+  eeAddress += sizeof(cornerA);
+  EEPROM.put(eeAddress, cornerB);
+  eeAddress += sizeof(cornerB);
+  EEPROM.put(eeAddress, cornerC);
+  eeAddress += sizeof(cornerC);
+  EEPROM.put(eeAddress, cornerD);
+}
+
+void ReadData()                                           //reads data from eeprom
+{
+  int eeAddress = 1;
+  cornerA = EEPROM.get(eeAddress, cornerA);
+  eeAddress += sizeof(cornerA);
+  cornerB = EEPROM.get(eeAddress, cornerB);
+  eeAddress += sizeof(cornerB);
+  cornerC = EEPROM.get(eeAddress, cornerC);
+  eeAddress += sizeof(cornerC);
+  cornerD = EEPROM.get(eeAddress, cornerD);
+}
+
+int mapCoordToAngle(int k)                                //maps coordinate system to servo angles
+{
+  int servoAngle = k + SERVO_OFFSET;
+  return servoAngle;
+}
+
+int mapAnalogToCoord(int k)                               //maps analog values to the coordinate system
+{
+  int coordVal = map(k, 0, 1023, 1, 179);
+  return coordVal;
+}
+
+void UpdateXValues()                                      //generates values for where newX can land
+{                                                         //only needs to run when corners are redefined
+  if (cornerA.x < cornerB.x)
+  {
+    xValues.leftSlope = "Decreasing";
+  }
+  else if (cornerA.x == cornerB.x)
+  {
+    xValues.leftSlope = "Vertical";
+  }
+  else if (cornerA.x > cornerB.x)
+  {
+    xValues.leftSlope = "Increasing";
+  }
+  if (cornerD.x < cornerC.x)
+  {
+    xValues.rightSlope = "Decreasing";
+  }
+  else if (cornerD.x == cornerC.x)
+  {
+    xValues.rightSlope = "Vertical";
+  }
+  else if (cornerD.x > cornerC.x)
+  {
+    xValues.rightSlope = "Increasing";
+  }
+  xValues.x1 = min(cornerA.x, cornerB.x);
+  xValues.x2 = max(cornerA.x, cornerB.x);
+  xValues.x3 = min(cornerC.x, cornerD.x);
+  xValues.x4 = max(cornerC.x, cornerD.x);
+}
+
+void Initialize()                        //move to center, move through corner locations A -> D, then to A
+{                                        //pause for 2 seconds, start random motions
+  CalculateIntervals(90, 90, 50);
+  MoveServos();
+  delay(1000);
+  CalculateIntervals(cornerA.x, cornerA.y, 50);
+  MoveServos();
+  delay(1000);
+  CalculateIntervals(cornerB.x, cornerB.y, 50);
+  MoveServos();
+  delay(1000);
+  CalculateIntervals(cornerC.x, cornerC.y, 50);
+  MoveServos();
+  delay(1000);
+  CalculateIntervals(cornerD.x, cornerD.y, 50);
+  MoveServos();
+  delay(1000);
+  CalculateIntervals(cornerA.x, cornerA.y, 50);
+  MoveServos();
+  delay(1000);
+}
