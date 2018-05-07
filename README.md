@@ -11,10 +11,15 @@ directly with the servo motor angles. There are four quadrants to
 the square: A, B, C, and D.
 
 A goes from (0, 90) to (90, 180)
+
 B goes from (0, 0) to (90, 90)
+
 C goes from (90, 0) to (180, 90)
+
 D goes from (90, 90) to (180, 180)
+
 In short, it starts at the top left,
+
 then goes down, then right, then up.
 
 There are four corners: cornerA, cornerB, cornerC, and cornerD.
