@@ -35,3 +35,15 @@ When programming, you go through each corner and set the location of
 that corner by first setting its left/right location, then its
 up/down location. Then when you are done, those locations are saved
 to EEPROM.
+
+The struct randomX has 6 elements. The middle 4 are the x-values from
+the 4 corners going from furthest left to furthest right. The other
+two are the slopes (either increasing or decreasing) of the left edge
+and right edge. These are used in determining bounds for randomizing
+where the laser pointer will go to next.
+
+Randomizing the laser pointer's next location is done as follows:
+First a random x-value between the furthest left corner (either a or b)
+and the furthest right corner (either c or d). Then, using randomX,
+it determines which edges are the upper and lower bounds for the
+random y-value.
